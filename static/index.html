@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>File Transfer</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <div class="card">
+            <div class="card-header">
+                <h1>File Transfer</h1>
+            </div>
+            <div class="card-body">
+                <h5 class="card-title">Chunked Upload (with resume)</h5>
+                <form id="uploadForm">
+                    <div class="mb-3">
+                        <input class="form-control" type="file" name="file">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Upload</button>
+                </form>
+                <div class="progress mt-3" style="display: none;">
+                    <div id="progressBar" class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">
+                <h2>Uploaded Files</h2>
+            </div>
+            <ul id="fileList" class="list-group list-group-flush"></ul>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5>Simple Upload</h5>
+            </div>
+            <div class="card-body">
+                <form id="simpleUploadForm" action="/api/simple/upload" method="post" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <input class="form-control" type="file" name="file">
+                    </div>
+                    <button type="submit" class="btn btn-secondary">Upload Simply</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const fileInput = document.querySelector('input[type="file"]');
+            const file = fileInput.files[0];
+            if (!file) {
+                alert('Please select a file to upload.');
+                return;
+            }
+            document.querySelector('.progress').style.display = 'block';
+
+            const chunkSize = 1024 * 1024; // 1MB
+            const totalChunks = Math.ceil(file.size / chunkSize);
+            const fileIdentifier = Date.now() + '-' + file.name;
+
+            let chunkNumber = 0;
+
+            function uploadChunk() {
+                chunkNumber++;
+                const start = (chunkNumber - 1) * chunkSize;
+                const end = Math.min(start + chunkSize, file.size);
+                const chunk = file.slice(start, end);
+
+                const formData = new FormData();
+                formData.append('file', chunk, file.name);
+                formData.append('chunkNumber', chunkNumber);
+                formData.append('totalChunks', totalChunks);
+                formData.append('fileIdentifier', fileIdentifier);
+
+                fetch('/api/files', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    const percentComplete = Math.round((chunkNumber / totalChunks) * 100);
+                    const progressBar = document.getElementById('progressBar');
+                    progressBar.style.width = percentComplete + '%';
+                    progressBar.textContent = percentComplete + '%';
+
+                    if (chunkNumber < totalChunks) {
+                        uploadChunk();
+                    } else {
+                        setTimeout(() => {
+                            document.querySelector('.progress').style.display = 'none';
+                            progressBar.style.width = '0%';
+                            progressBar.textContent = '0%';
+                            mergeChunks();
+                        }, 500);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error uploading chunk:', error);
+                    alert('Error uploading chunk.');
+                });
+            }
+
+            function mergeChunks() {
+                const formData = new FormData();
+                formData.append('filename', file.name);
+                formData.append('totalChunks', totalChunks);
+                formData.append('fileIdentifier', fileIdentifier);
+
+                fetch('/api/files/merge', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    console.log(data);
+                    alert('File uploaded successfully!');
+                    loadFiles();
+                })
+                .catch(error => {
+                    console.error('Error merging chunks:', error);
+                    alert('Error merging chunks.');
+                });
+            }
+
+            uploadChunk();
+        });
+
+        function loadFiles() {
+            fetch('/api/files')
+                .then(response => response.json())
+                .then(data => {
+                    var fileList = document.getElementById('fileList');
+                    fileList.innerHTML = '';
+                    if (data.files) {
+                        data.files.forEach(function(filename) {
+                        var li = document.createElement('li');
+                        li.className = 'list-group-item';
+                        var a = document.createElement('a');
+                        a.href = '/api/simple/download/' + filename;
+                        a.textContent = filename;
+                        li.appendChild(a);
+                        fileList.appendChild(li);
+                        });
+                    }
+                });
+        }
+
+        window.onload = loadFiles;
+    </script>
+</body>
+</html>
